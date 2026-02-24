@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Environment
+.env
+
+# ChromaDB (base vectorielle locale)
+chroma_db/
+
+# Documents uploadés (PDFs)
+documents/
+*.pdf
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
