@@ -12,6 +12,10 @@ from pdf_parser import extract_text_from_pdf
 from chunker import chunk_document
 from vector_store import VectorStore
 from config import (
+    LLM_PROVIDER,
+    GROQ_API_KEY,
+    GROQ_MODEL,
+    GROQ_BASE_URL,
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
     OLLAMA_API_KEY,
@@ -141,7 +145,7 @@ class RAGPipeline:
                 "answer": "⚠️ Aucun document n'est indexé ou aucun passage pertinent n'a été trouvé. "
                           "Veuillez d'abord charger un document PDF.",
                 "sources": [],
-                "model": OLLAMA_MODEL,
+                "model": self._get_model_name(),
             }
         
         # 3. Construire le contexte à partir des chunks
@@ -150,8 +154,8 @@ class RAGPipeline:
         # 4. Construire le prompt utilisateur
         user_prompt = self._build_user_prompt(question, context)
         
-        # 5. Appeler le LLM via Ollama
-        answer = self._call_ollama(user_prompt)
+        # 5. Appeler le LLM
+        answer = self._call_llm(user_prompt)
         
         # 6. Formater les sources
         sources = self._format_sources(results)
@@ -165,7 +169,7 @@ class RAGPipeline:
         return {
             "answer": answer,
             "sources": sources,
-            "model": OLLAMA_MODEL,
+            "model": self._get_model_name(),
         }
     
     def _build_context(self, results: list[dict]) -> str:
@@ -189,6 +193,12 @@ class RAGPipeline:
         
         return "\n".join(context_parts)
     
+    def _get_model_name(self) -> str:
+        """Retourne le nom du modèle actif selon le provider."""
+        if LLM_PROVIDER == "groq":
+            return GROQ_MODEL
+        return OLLAMA_MODEL
+    
     def _decompose_question(self, question: str) -> list[str]:
         """
         Décompose une question en sous-requêtes couvrant différents aspects.
@@ -197,20 +207,12 @@ class RAGPipeline:
         prompt = DECOMPOSITION_PROMPT.format(n=MULTI_QUERY_COUNT, question=question)
         
         try:
-            url = f"{OLLAMA_BASE_URL}/api/chat"
-            payload = {
-                "model": OLLAMA_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "options": {"temperature": 0.3, "num_predict": 256},
-                "stream": False,
-            }
-            headers = {"Content-Type": "application/json"}
-            if OLLAMA_API_KEY:
-                headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
-            response.raise_for_status()
-            
-            content = response.json().get("message", {}).get("content", "")
+            content = self._call_llm_raw(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=256,
+                timeout=60,
+            )
             
             # Extraire le JSON de la réponse (le LLM peut ajouter du texte autour)
             json_match = re.search(r'\[.*?\]', content, re.DOTALL)
@@ -236,46 +238,97 @@ class RAGPipeline:
             f"Ne te limite pas à un seul article. Si l'information n'est pas dans les extraits, dis-le clairement."
         )
     
-    def _call_ollama(self, user_prompt: str) -> str:
-        """Appelle l'API Ollama pour générer une réponse."""
-        url = f"{OLLAMA_BASE_URL}/api/chat"
-        
-        payload = {
-            "model": OLLAMA_MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            "options": {
-                "temperature": LLM_TEMPERATURE,
-                "num_predict": LLM_MAX_TOKENS,
-            },
-            "stream": False,
-        }
-        
+    def _call_llm(self, user_prompt: str) -> str:
+        """Appelle le LLM (Groq ou Ollama) pour générer une réponse."""
         try:
-            headers = {"Content-Type": "application/json"}
-            if OLLAMA_API_KEY:
-                headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
-            response = requests.post(url, json=payload, headers=headers, timeout=300)
-            response.raise_for_status()
-            
-            result = response.json()
-            return result.get("message", {}).get("content", "Erreur : réponse vide du modèle.")
-            
+            return self._call_llm_raw(
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=LLM_TEMPERATURE,
+                max_tokens=LLM_MAX_TOKENS,
+                timeout=300,
+            )
         except requests.exceptions.ConnectionError:
+            provider = "Groq" if LLM_PROVIDER == "groq" else "Ollama"
             return (
-                "❌ **Impossible de se connecter à Ollama.** \n\n"
-                "Assurez-vous qu'Ollama est en cours d'exécution :\n"
-                "```bash\nollama serve\n```"
+                f"❌ **Impossible de se connecter à {provider}.** \n\n"
+                + ("Vérifiez votre clé API Groq et votre connexion Internet."
+                   if LLM_PROVIDER == "groq" else
+                   "Assurez-vous qu'Ollama est en cours d'exécution :\n"
+                   "```bash\nollama serve\n```")
             )
         except requests.exceptions.Timeout:
             return (
                 "⏳ **Le modèle met trop de temps à répondre.** \n\n"
-                "Essayez avec une question plus courte ou vérifiez les ressources de votre machine."
+                "Essayez avec une question plus courte."
             )
         except Exception as e:
             return f"❌ **Erreur lors de l'appel au LLM :** {str(e)}"
+    
+    def _call_llm_raw(
+        self, messages: list[dict], temperature: float,
+        max_tokens: int, timeout: int
+    ) -> str:
+        """
+        Appel bas niveau au LLM. Supporte Groq (OpenAI-compatible) et Ollama.
+        
+        Returns:
+            Le contenu texte de la réponse du LLM.
+        Raises:
+            Exceptions requests en cas d'erreur réseau.
+        """
+        if LLM_PROVIDER == "groq":
+            return self._call_groq(messages, temperature, max_tokens, timeout)
+        else:
+            return self._call_ollama(messages, temperature, max_tokens, timeout)
+    
+    def _call_groq(
+        self, messages: list[dict], temperature: float,
+        max_tokens: int, timeout: int
+    ) -> str:
+        """Appelle l'API Groq (format OpenAI-compatible)."""
+        payload = {
+            "model": GROQ_MODEL,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+        }
+        response = requests.post(GROQ_BASE_URL, json=payload, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result["choices"][0]["message"]["content"]
+    
+    def _call_ollama(
+        self, messages: list[dict], temperature: float,
+        max_tokens: int, timeout: int
+    ) -> str:
+        """Appelle l'API Ollama (format natif)."""
+        url = f"{OLLAMA_BASE_URL}/api/chat"
+        payload = {
+            "model": OLLAMA_MODEL,
+            "messages": messages,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+            "stream": False,
+        }
+        headers = {"Content-Type": "application/json"}
+        if OLLAMA_API_KEY:
+            headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+        response = requests.post(url, json=payload, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result.get("message", {}).get("content", "Erreur : réponse vide du modèle.")
     
     def _format_sources(self, results: list[dict]) -> list[dict]:
         """Formate les sources pour l'affichage."""
@@ -303,7 +356,8 @@ class RAGPipeline:
         vs_stats = self.vector_store.get_stats()
         return {
             **vs_stats,
-            "model": OLLAMA_MODEL,
+            "model": self._get_model_name(),
+            "provider": LLM_PROVIDER,
             "questions_posees": len(self._conversation_history),
         }
 

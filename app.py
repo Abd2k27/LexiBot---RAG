@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 
 from rag_pipeline import RAGPipeline
-from config import OLLAMA_MODEL, DOCUMENTS_DIR
+from config import OLLAMA_MODEL, GROQ_MODEL, LLM_PROVIDER, DOCUMENTS_DIR
 
 
 # === Configuration de la page ===
@@ -201,7 +201,10 @@ with st.sidebar:
     
     # Configuration
     st.markdown("### ⚙️ Configuration")
-    st.markdown(f"**Modèle LLM :** `{OLLAMA_MODEL}`")
+    model_name = GROQ_MODEL if LLM_PROVIDER == "groq" else OLLAMA_MODEL
+    provider_label = "☁️ Groq" if LLM_PROVIDER == "groq" else "🖥️ Ollama"
+    st.markdown(f"**Provider :** `{provider_label}`")
+    st.markdown(f"**Modèle LLM :** `{model_name}`")
     st.markdown(f"**Embeddings :** `{stats['embedding_model']}`")
     
     st.markdown("---")

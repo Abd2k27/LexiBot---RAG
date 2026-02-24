@@ -45,35 +45,60 @@ graph LR
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation (local)
 
 ### Prérequis
 
 - Python 3.10+
-- [Ollama](https://ollama.com/) installé et en cours d'exécution
+- Un compte [Groq](https://console.groq.com) (gratuit) **ou** [Ollama](https://ollama.com/) installé
 
 ### Étapes
 
 ```bash
 # 1. Cloner le projet
-git clone https://github.com/votre-username/lexibot.git
-cd lexibot
+git clone https://github.com/Abd2k27/LexiBot---RAG.git
+cd LexiBot---RAG
 
 # 2. Installer les dépendances
 pip install -r requirements.txt
 
 # 3. Configurer l'environnement
 cp .env.example .env
-# Éditez .env avec votre modèle et clé API
+# Éditez .env : ajoutez votre clé API Groq (ou configurez Ollama)
 
-# 4. Vérifier qu'Ollama tourne
-ollama serve
-
-# 5. Lancer l'application
+# 4. Lancer l'application
 streamlit run app.py
 ```
 
 L'application sera accessible sur `http://localhost:8501`.
+
+---
+
+## ☁️ Déploiement sur Streamlit Cloud
+
+### 1. Obtenir une clé API Groq (gratuit)
+
+1. Allez sur [console.groq.com](https://console.groq.com)
+2. Créez un compte (gratuit, sans carte bancaire)
+3. Allez dans **API Keys** → **Create API Key**
+4. Copiez la clé
+
+### 2. Déployer
+
+1. Allez sur [share.streamlit.io](https://share.streamlit.io)
+2. Connectez votre repo GitHub `Abd2k27/LexiBot---RAG`
+3. Sélectionnez `app.py` comme fichier principal
+4. Cliquez sur **Deploy**
+
+### 3. Configurer les secrets
+
+Dans les **Settings > Secrets** de votre app Streamlit Cloud, ajoutez :
+
+```toml
+LLM_PROVIDER = "groq"
+GROQ_API_KEY = "gsk_votre_clé_ici"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+```
 
 ---
 
@@ -100,9 +125,12 @@ lexibot/
 ├── vector_store.py     # Recherche hybride (ChromaDB + BM25)
 ├── chunker.py          # Découpage intelligent des textes juridiques
 ├── pdf_parser.py       # Extraction de texte depuis les PDFs
-├── config.py           # Configuration centralisée
+├── config.py           # Configuration centralisée (st.secrets + .env)
 ├── requirements.txt    # Dépendances Python
+├── packages.txt        # Dépendances système (Streamlit Cloud)
 ├── .env.example        # Template des variables d'environnement
+├── .streamlit/
+│   └── config.toml     # Thème Streamlit
 └── .gitignore
 ```
 

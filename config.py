@@ -1,13 +1,34 @@
 """
 Configuration centralisée du chatbot RAG.
 Modifier les valeurs ici pour adapter le système.
+
+Supporte deux modes :
+  - Local : variables lues depuis le fichier .env (via python-dotenv)
+  - Streamlit Cloud : variables lues depuis st.secrets (configurées dans l'UI)
 """
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Charger les variables d'environnement depuis .env
+# Charger les variables d'environnement depuis .env (ignoré si absent)
 load_dotenv()
+
+
+def _get_secret(key: str, default: str = "") -> str:
+    """
+    Récupère une variable de configuration.
+    Priorité : st.secrets > variable d'environnement > valeur par défaut.
+    """
+    # 1. Essayer st.secrets (Streamlit Cloud)
+    try:
+        import streamlit as st
+        if key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:
+        pass
+    # 2. Fallback sur les variables d'environnement / .env
+    return os.getenv(key, default)
+
 
 # === Chemins ===
 PROJECT_DIR = Path(__file__).parent
@@ -18,10 +39,19 @@ DOCUMENTS_DIR = PROJECT_DIR / "documents"
 CHROMA_DB_DIR.mkdir(exist_ok=True)
 DOCUMENTS_DIR.mkdir(exist_ok=True)
 
-# === Ollama ===
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "glm-4.6:cloud")
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
+# === LLM Provider ===
+# "groq" (cloud, gratuit) ou "ollama" (local)
+LLM_PROVIDER = _get_secret("LLM_PROVIDER", "groq")
+
+# === Groq (cloud — défaut pour Streamlit Cloud) ===
+GROQ_API_KEY = _get_secret("GROQ_API_KEY", "")
+GROQ_MODEL = _get_secret("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# === Ollama (local — pour le développement) ===
+OLLAMA_BASE_URL = _get_secret("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = _get_secret("OLLAMA_MODEL", "gpt-oss:120b-cloud")
+OLLAMA_API_KEY = _get_secret("OLLAMA_API_KEY", "")
 
 # === Embeddings ===
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"

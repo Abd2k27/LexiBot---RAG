@@ -1,0 +1,3 @@
+# Dépendances système pour PyMuPDF sur Linux (Streamlit Cloud)
+libgl1-mesa-glx
+libglib2.0-0
