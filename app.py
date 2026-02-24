@@ -280,6 +280,35 @@ for message in st.session_state.messages:
                     )
 
 # Input de chat
+# Patterns conversationnels qui ne nécessitent pas de recherche RAG
+_CONVERSATIONAL_PATTERNS = {
+    "merci", "merci beaucoup", "thanks", "thank you", "ok", "okay", "d'accord",
+    "super", "parfait", "génial", "cool", "top", "bien", "très bien", "excellent",
+    "bonjour", "bonsoir", "salut", "hello", "hi", "hey", "coucou",
+    "au revoir", "bye", "à bientôt", "bonne journée", "bonne soirée",
+    "oui", "non", "je comprends", "compris", "c'est clair", "c'est noté",
+}
+
+_CONVERSATIONAL_RESPONSES = {
+    "greeting": "👋 Bonjour ! Posez-moi une question sur vos documents juridiques, je suis là pour vous aider.",
+    "thanks": "😊 Avec plaisir ! N'hésitez pas si vous avez d'autres questions.",
+    "farewell": "👋 À bientôt ! Bonne continuation.",
+    "acknowledge": "👍 D'accord ! Si vous avez d'autres questions, je suis là.",
+}
+
+def _detect_conversational(text: str) -> str | None:
+    """Détecte si un message est conversationnel et retourne le type."""
+    clean = text.strip().lower().rstrip("!?.…")
+    if clean not in _CONVERSATIONAL_PATTERNS:
+        return None
+    if clean in {"bonjour", "bonsoir", "salut", "hello", "hi", "hey", "coucou"}:
+        return "greeting"
+    if clean in {"merci", "merci beaucoup", "thanks", "thank you"}:
+        return "thanks"
+    if clean in {"au revoir", "bye", "à bientôt", "bonne journée", "bonne soirée"}:
+        return "farewell"
+    return "acknowledge"
+
 if prompt := st.chat_input("Pose ta question sur le numérique et tes droits..."):
     # Vérifier qu'il y a des documents indexés
     if stats["total_chunks"] == 0:
@@ -290,43 +319,57 @@ if prompt := st.chat_input("Pose ta question sur le numérique et tes droits..."
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
         
-        # Générer la réponse
-        with st.chat_message("assistant", avatar="⚖️"):
-            with st.spinner("🔍 Recherche dans les documents et génération de la réponse..."):
-                result = st.session_state.pipeline.ask(prompt)
-            
-            st.markdown(result["answer"])
-            
-            # Afficher les sources
-            if result["sources"]:
-                with st.expander(f"📌 Sources ({len(result['sources'])} extraits)", expanded=False):
-                    for i, source in enumerate(result["sources"], 1):
-                        article = source.get("article", "")
-                        chapitre = source.get("chapitre", "")
-                        page = source.get("page", "")
-                        pertinence = source.get("pertinence", "")
-                        
-                        header_parts = []
-                        if article:
-                            header_parts.append(article)
-                        if chapitre:
-                            header_parts.append(chapitre)
-                        header = " | ".join(header_parts) if header_parts else f"Extrait {i}"
-                        
-                        st.markdown(
-                            f'<div class="source-card">'
-                            f'<div class="source-header">📎 {header} (p.{page}) — {pertinence}</div>'
-                            f'<div class="source-text">{source["texte"]}</div>'
-                            f'</div>',
-                            unsafe_allow_html=True
-                        )
+        # Vérifier si c'est un message conversationnel (pas besoin de RAG)
+        conv_type = _detect_conversational(prompt)
         
-        # Sauvegarder dans l'historique
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": result["answer"],
-            "sources": result["sources"],
-        })
+        if conv_type:
+            # Réponse directe sans appel API
+            reply = _CONVERSATIONAL_RESPONSES[conv_type]
+            with st.chat_message("assistant", avatar="⚖️"):
+                st.markdown(reply)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": reply,
+                "sources": [],
+            })
+        else:
+            # Générer la réponse via le pipeline RAG
+            with st.chat_message("assistant", avatar="⚖️"):
+                with st.spinner("🔍 Recherche dans les documents et génération de la réponse..."):
+                    result = st.session_state.pipeline.ask(prompt)
+                
+                st.markdown(result["answer"])
+                
+                # Afficher les sources
+                if result["sources"]:
+                    with st.expander(f"📌 Sources ({len(result['sources'])} extraits)", expanded=False):
+                        for i, source in enumerate(result["sources"], 1):
+                            article = source.get("article", "")
+                            chapitre = source.get("chapitre", "")
+                            page = source.get("page", "")
+                            pertinence = source.get("pertinence", "")
+                            
+                            header_parts = []
+                            if article:
+                                header_parts.append(article)
+                            if chapitre:
+                                header_parts.append(chapitre)
+                            header = " | ".join(header_parts) if header_parts else f"Extrait {i}"
+                            
+                            st.markdown(
+                                f'<div class="source-card">'
+                                f'<div class="source-header">📎 {header} (p.{page}) — {pertinence}</div>'
+                                f'<div class="source-text">{source["texte"]}</div>'
+                                f'</div>',
+                                unsafe_allow_html=True
+                            )
+            
+            # Sauvegarder dans l'historique
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": result["answer"],
+                "sources": result["sources"],
+            })
 
 # Disclaimer
 st.markdown("---")
